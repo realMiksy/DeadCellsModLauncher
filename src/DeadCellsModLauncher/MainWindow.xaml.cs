@@ -1069,7 +1069,16 @@ public partial class MainWindow : Window
             else if (DetectGamePlatformFlavor() == GamePlatformFlavor.Standalone)
                 SetStatus("DCCM repaired. Standalone direct startup is ready for LAN / port forwarding.");
             else if (DetectGamePlatformFlavor() == GamePlatformFlavor.SteamRuntimeOutsideSteam)
-                SetStatus("DCCM repaired. Copied Steam-format build; DCCM direct startup is ready for LAN / port forwarding.");
+            {
+                // Configure the non-Steam path at install time rather than waiting for the first
+                // launch to fail, so the very first Play works on a copied Steam-format build.
+                TryEnsureSteamAppIdFile();
+                var goldbergOk = _gameRoot != null && File.Exists(Path.Combine(_gameRoot, "steam_api64.dll"))
+                    || TryEnableGoldbergInCoreConfig(out _);
+                SetStatus(goldbergOk
+                    ? "DCCM repaired. Copied Steam-format build configured for non-Steam startup; LAN / port forwarding ready."
+                    : "DCCM repaired, but the non-Steam startup setting could not be written. Set \"EnableGoldberg\": true in coremod\\config\\modcore.json.");
+            }
             else
                 SetStatus("DCCM repaired, but mixed Steam/GOG platform files were detected. Restore a clean Dead Cells installation before launching.");
         }
@@ -1527,12 +1536,41 @@ public partial class MainWindow : Window
             if (exe == null)
                 throw new FileNotFoundException("Could not find a vanilla Dead Cells executable that is not DCCM.");
 
+            // A copied Steam-format build with no steam_api64.dll cannot start the raw binary at
+            // all — nothing supplies Steam, so it exits during platform init. DCCM's Goldberg
+            // support is what makes this build launch, and it only applies when DCCM starts the
+            // game. Vanilla mode has already moved the co-op mod to the disabled folder, so
+            // starting DCCM here loads no mods: same result the Steam path gives, and the
+            // EnableGoldberg setting is left exactly as it is for the next enable.
+            if (!IsSteamInstall()
+                && DetectGamePlatformFlavor() == GamePlatformFlavor.SteamRuntimeOutsideSteam
+                && !File.Exists(Path.Combine(_gameRoot, "steam_api64.dll")))
+            {
+                var dccm = DccmLauncherPath();
+                if (dccm != null && File.Exists(dccm))
+                {
+                    var dccmPsi = new System.Diagnostics.ProcessStartInfo(dccm)
+                    {
+                        UseShellExecute = false,
+                        WorkingDirectory = _gameRoot
+                    };
+                    System.Diagnostics.Process.Start(dccmPsi);
+                    WriteLog("Vanilla mode on a copied non-Steam build: started DCCM with the co-op mod disabled.");
+                    SetStatus("Launching Dead Cells with the co-op mod disabled. This build needs DCCM's non-Steam startup, so DCCM runs with no mods loaded.");
+                    return;
+                }
+            }
+
             var psi = new System.Diagnostics.ProcessStartInfo(exe)
             {
                 UseShellExecute = false,
                 WorkingDirectory = _gameRoot
             };
-            if (IsSteamInstall())
+
+            // A copied Steam-format build needs the same app id hint a real Steam launch supplies,
+            // otherwise the vanilla binary cannot work out which game it is either. Harmless when
+            // Steam is not running — the game falls back exactly as it does under DCCM.
+            if (IsSteamInstall() || DetectGamePlatformFlavor() == GamePlatformFlavor.SteamRuntimeOutsideSteam)
             {
                 psi.Environment["SteamAppId"] = DeadCellsSteamAppId.ToString();
                 psi.Environment["SteamGameId"] = DeadCellsSteamAppId.ToString();
@@ -1582,6 +1620,74 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             WriteLog($"Could not write steam_appid.txt: {ex.Message}. Launch continues; Steam features may be unavailable.");
+        }
+    }
+
+    private string? CoreConfigPath()
+        => _gameRoot == null ? null : Path.Combine(_gameRoot, "coremod", "config", "modcore.json");
+
+    /// <summary>
+    /// Sets <c>EnableGoldberg</c> to true in DCCM's core config, leaving every other key untouched.
+    /// </summary>
+    /// <remarks>
+    /// This is DCCM's own non-Steam support, which is why the key ships in modcore.json. It lets a
+    /// Steam-format build start when no steam_api64.dll and no Steam library are present — the case
+    /// a copied install for second-instance / LAN testing always lands in. Parsed as a JSON tree and
+    /// rewritten so unrelated settings survive; DCCM recreates the file with defaults if absent.
+    /// </remarks>
+    private bool TryEnableGoldbergInCoreConfig(out string error)
+    {
+        error = string.Empty;
+
+        // Never on a real Steam install. Those have a working Steam client, a licence check and a
+        // valid steam_api64.dll; substituting an emulator there would break overlay, playtime and
+        // achievements for no reason. This is only for a copied build that has no Steam around it.
+        if (IsSteamInstall() || DetectGamePlatformFlavor() != GamePlatformFlavor.SteamRuntimeOutsideSteam)
+        {
+            error = "this is not a copied non-Steam build; the setting was left unchanged.";
+            return false;
+        }
+
+        var path = CoreConfigPath();
+        if (path == null)
+        {
+            error = "no game folder is selected.";
+            return false;
+        }
+
+        try
+        {
+            System.Text.Json.Nodes.JsonObject root;
+            if (File.Exists(path))
+            {
+                var parsed = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(path));
+                root = parsed as System.Text.Json.Nodes.JsonObject
+                       ?? throw new InvalidDataException("modcore.json is not a JSON object.");
+            }
+            else
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                root = new System.Text.Json.Nodes.JsonObject();
+            }
+
+            if (root.TryGetPropertyValue("EnableGoldberg", out var existing) &&
+                existing is System.Text.Json.Nodes.JsonValue value &&
+                value.TryGetValue<bool>(out var already) &&
+                already)
+            {
+                return true;
+            }
+
+            root["EnableGoldberg"] = true;
+            File.WriteAllText(path, root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+            WriteLog("Enabled EnableGoldberg in modcore.json for this non-Steam build.");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            WriteLog($"Could not enable EnableGoldberg in modcore.json: {ex.Message}");
+            return false;
         }
     }
 
@@ -1650,6 +1756,22 @@ public partial class MainWindow : Window
                     // and would misreport the platform. DCCM is started directly so its own
                     // platform detection decides, exactly as for a standalone build.
                     TryEnsureSteamAppIdFile();
+
+                    // steam.hdll calls into steam_api64.dll at startup. A copied Steam-format build
+                    // usually has neither that DLL nor a Steam library around it, so the game exits
+                    // during platform init. DCCM ships its own answer for exactly this — the
+                    // EnableGoldberg core setting — so turn it on rather than refusing to launch.
+                    var goldbergNeeded = _gameRoot != null
+                        && !File.Exists(Path.Combine(_gameRoot, "steam_api64.dll"));
+                    if (goldbergNeeded && !TryEnableGoldbergInCoreConfig(out var configError))
+                    {
+                        throw new InvalidOperationException(
+                            "This copy has steam.hdll but no steam_api64.dll, so Dead Cells cannot initialize Steam and will exit during startup.\n\n" +
+                            $"The launcher tried to enable DCCM's built-in non-Steam support automatically and could not: {configError}\n\n" +
+                            "Set \"EnableGoldberg\": true in coremod\\config\\modcore.json by hand, or copy steam_api64.dll " +
+                            "from an owned Dead Cells install into this game folder.");
+                    }
+
                     launcher = DccmLauncherPath()
                         ?? throw new FileNotFoundException("DeadCellsModding.exe was not found.");
                     if (!File.Exists(launcher))
