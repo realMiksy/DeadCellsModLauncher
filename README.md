@@ -58,7 +58,7 @@ On a Steam installation, the launcher prepares DCCM's Steam bootstrap path and s
 
 ### LAN / port forwarding
 
-Steam is not required for the launcher itself. Standalone installations use DCCM directly and can use the multiplayer mod's LAN/direct-connect path.
+Steam is not required for the launcher itself. Standalone/GOG installations use DCCM's dedicated `deadcells-gog.exe` startup shell and can use the multiplayer mod's LAN/direct-connect path.
 
 This is useful for:
 
@@ -182,7 +182,7 @@ Use the latest launcher build, press **Disable Co-op Mod**, then launch with **P
 
 ### Steam hosting is unavailable
 
-LAN / direct IP / port forwarding can still be used through the standalone DCCM launch path.
+LAN / direct IP / port forwarding can still be used through DCCM's dedicated GOG/non-Steam startup shell.
 
 ## Development
 

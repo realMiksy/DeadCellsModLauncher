@@ -56,6 +56,8 @@ public partial class MainWindow : Window
     private string? _dccmZipUrl;
     private string? _dccmSteamShellUrl;
     private string? _dccmSteamShellAssetName;
+    private string? _dccmGogShellUrl;
+    private string? _dccmGogShellAssetName;
     private bool _busy;
     private readonly string _logPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -179,7 +181,7 @@ public partial class MainWindow : Window
                 ? "Disabled — full vanilla mode"
                 : steam
                     ? (SteamShellReady() ? "Steam hosting + LAN / port forwarding" : "Steam install; Steam shell will be repaired on Install/Play")
-                    : "LAN / port-forwarding mode";
+                    : (GogShellReady() ? "GOG/non-Steam launcher + LAN / port-forwarding" : "Non-Steam shell needs repair");
             if (installedV != null)
                 DccmStatus.Text = vanillaMode
                     ? $"Installed ({installedV}), but currently disabled. Dead Cells will launch without DCCM or the co-op mod."
@@ -884,6 +886,12 @@ public partial class MainWindow : Window
     private string? SteamShellMarkerPath()
         => _coremodRoot == null ? null : Path.Combine(_coremodRoot, ".dcmm-steam-shell-version");
 
+    private string? GogShellCachePath()
+        => _coremodRoot == null ? null : Path.Combine(_coremodRoot, "launcher", "gog", "deadcells-gog.exe");
+
+    private string? GogShellMarkerPath()
+        => _coremodRoot == null ? null : Path.Combine(_coremodRoot, ".dcmm-gog-shell-version");
+
     private bool DccmInstalled()
     {
         var launcher = DccmLauncherPath();
@@ -929,6 +937,8 @@ public partial class MainWindow : Window
             _dccmZipUrl = null;
             _dccmSteamShellUrl = null;
             _dccmSteamShellAssetName = null;
+            _dccmGogShellUrl = null;
+            _dccmGogShellAssetName = null;
 
             if (root.TryGetProperty("assets", out var assets))
             {
@@ -951,6 +961,19 @@ public partial class MainWindow : Window
                     {
                         _dccmSteamShellUrl ??= downloadUrl;
                         _dccmSteamShellAssetName ??= originalName;
+                    }
+
+                    // DCCM publishes a separate GOG/non-Steam bootstrapper. Launching the raw
+                    // DeadCellsModding host bypasses the environment setup this shell performs and
+                    // can leave standalone builds stuck at "Steam init failed!".
+                    var exactGogShell = string.Equals(originalName, "deadcells-gog.exe", StringComparison.OrdinalIgnoreCase);
+                    var namedGogShell = (name.EndsWith(".exe") || name.EndsWith(".zip"))
+                        && (name.Contains("gog") || name.Contains("standalone"))
+                        && name.Contains("deadcells");
+                    if (exactGogShell || namedGogShell)
+                    {
+                        _dccmGogShellUrl ??= downloadUrl;
+                        _dccmGogShellAssetName ??= originalName;
                     }
 
                     if (!name.EndsWith(".zip")) continue;
@@ -997,8 +1020,10 @@ public partial class MainWindow : Window
                 SetStatus("DCCM repaired. Steam mod-loader shell is installed; Steam hosting + LAN are ready.");
             else if (IsSteamInstall())
                 SetStatus("DCCM repaired, but the Steam shell was unavailable. LAN / port-forwarding fallback is ready.");
+            else if (GogShellReady())
+                SetStatus("DCCM repaired. The official GOG/non-Steam launcher is ready for LAN / port forwarding.");
             else
-                SetStatus("DCCM repaired. Non-Steam launch is ready for LAN / port forwarding.");
+                SetStatus("DCCM repaired, but the non-Steam startup shell is missing. Use Diagnostics or Repair / Update DCCM.");
         }
         catch (UnauthorizedAccessException)
         {
@@ -1047,6 +1072,13 @@ public partial class MainWindow : Window
             var steamReady = await EnsureSteamShellInstalledAsync(extractedDccmRoot: null);
             if (!steamReady)
                 SetStatus("DCCM is installed, but the Steam shell could not be found. The launcher will still use LAN / port-forwarding mode.");
+        }
+        else if (!IsSteamInstall() && !IsVanillaMode())
+        {
+            var gogReady = await EnsureGogShellInstalledAsync();
+            if (!gogReady)
+                throw new InvalidOperationException(
+                    "DCCM's deadcells-gog.exe non-Steam launcher could not be downloaded. Use Repair / Update DCCM while connected to the internet.");
         }
         SetProgress(0.38);
         RefreshDccmStatus();
@@ -1097,6 +1129,15 @@ public partial class MainWindow : Window
                 if (_dccmSteamShellUrl != null)
                     await DownloadAndCacheSteamShellAsync();
                 await EnsureSteamShellInstalledAsync(extract);
+            }
+            else if (!IsSteamInstall() && !IsVanillaMode())
+            {
+                // DCCM ships a dedicated GOG/non-Steam shell. Keep it next to our cached
+                // launcher helpers and use it for all standalone launches.
+                if (_dccmGogShellUrl != null)
+                    await DownloadAndCacheGogShellAsync();
+                if (!await EnsureGogShellInstalledAsync())
+                    throw new InvalidOperationException("DCCM's non-Steam launcher (deadcells-gog.exe) was not available in the release.");
             }
 
             SetProgress(0.38);
@@ -1233,6 +1274,93 @@ public partial class MainWindow : Window
             TryDelete(temp);
             TryDeleteDir(extract);
         }
+    }
+
+    private async Task<bool> EnsureGogShellInstalledAsync()
+    {
+        if (IsSteamInstall() || _gameRoot == null || _coremodRoot == null) return false;
+
+        var cache = GogShellCachePath();
+        if (cache == null) return false;
+
+        if (!File.Exists(cache) && _dccmGogShellUrl == null)
+            await CheckDccmLatestAsync();
+
+        if (!File.Exists(cache) && _dccmGogShellUrl != null)
+            await DownloadAndCacheGogShellAsync();
+
+        if (!File.Exists(cache))
+            return false;
+
+        // GOGStartShell searches upward for deadcells_gl.exe before handing off to DCCM.
+        // Fail clearly here instead of opening a console that can never complete startup.
+        var gl = Path.Combine(_gameRoot, "deadcells_gl.exe");
+        if (!File.Exists(gl))
+            throw new InvalidOperationException(
+                "This non-Steam Dead Cells install does not contain deadcells_gl.exe, which DCCM's GOG/non-Steam startup shell requires. " +
+                "Select the actual game folder or use Diagnostics and send the report.");
+
+        var marker = GogShellMarkerPath();
+        if (marker != null)
+        {
+            try { File.WriteAllText(marker, _dccmLatestVersion ?? "installed"); }
+            catch { }
+        }
+        return true;
+    }
+
+    private async Task DownloadAndCacheGogShellAsync()
+    {
+        if (_dccmGogShellUrl == null) return;
+        var cache = GogShellCachePath();
+        if (cache == null) return;
+
+        string? temp = null, extract = null;
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(cache)!);
+            var assetName = _dccmGogShellAssetName ?? "deadcells-gog.exe";
+            var isZip = assetName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)
+                || _dccmGogShellUrl.EndsWith(".zip", StringComparison.OrdinalIgnoreCase);
+            temp = Path.Combine(Path.GetTempPath(), $"dccm_gog_{Guid.NewGuid():N}" + (isZip ? ".zip" : ".exe"));
+            SetStatus("Downloading DCCM non-Steam launcher...");
+            await DownloadFileAsync(_dccmGogShellUrl, temp, 0.30, 0.35);
+
+            if (!isZip)
+            {
+                File.Copy(temp, cache, overwrite: true);
+                return;
+            }
+
+            extract = Path.Combine(Path.GetTempPath(), $"dccm_gog_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(extract);
+            ZipFile.ExtractToDirectory(temp, extract);
+            var candidate = Directory.EnumerateFiles(extract, "*.exe", SearchOption.AllDirectories)
+                .OrderByDescending(path =>
+                {
+                    var name = Path.GetFileName(path);
+                    var lower = path.Replace('\\', '/').ToLowerInvariant();
+                    var score = 0;
+                    if (name.Equals("deadcells-gog.exe", StringComparison.OrdinalIgnoreCase)) score += 500;
+                    if (lower.Contains("gog")) score += 200;
+                    if (name.Equals("deadcells.exe", StringComparison.OrdinalIgnoreCase)) score += 50;
+                    return score;
+                })
+                .FirstOrDefault();
+            if (candidate != null)
+                File.Copy(candidate, cache, overwrite: true);
+        }
+        finally
+        {
+            TryDelete(temp);
+            TryDeleteDir(extract);
+        }
+    }
+
+    private bool GogShellReady()
+    {
+        var cache = GogShellCachePath();
+        return !IsSteamInstall() && cache != null && File.Exists(cache);
     }
 
     private static bool FilesEqual(string a, string b)
@@ -1381,10 +1509,13 @@ public partial class MainWindow : Window
     {
         var launcher = DccmLauncherPath();
         var active = ActiveModPath();
+        var platformLauncherReady = IsSteamInstall()
+            ? launcher != null && File.Exists(launcher)
+            : launcher != null && File.Exists(launcher) && GogShellReady();
         return !IsVanillaMode()
             && active != null && Directory.Exists(active)
             && ReadInstalledVersion() != null
-            && launcher != null && File.Exists(launcher);
+            && platformLauncherReady;
     }
 
     private async Task LaunchGameAsync()
@@ -1401,12 +1532,25 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var launcher = DccmLauncherPath();
-            if (launcher == null || !File.Exists(launcher))
-                throw new FileNotFoundException("DeadCellsModding.exe was not found.", launcher);
+            string launcher;
+            if (!IsSteamInstall())
+            {
+                if (!await EnsureGogShellInstalledAsync())
+                    throw new FileNotFoundException(
+                        "DCCM's official non-Steam launcher (deadcells-gog.exe) was not found. Use Repair / Update DCCM.",
+                        GogShellCachePath());
+                launcher = GogShellCachePath()!;
+            }
+            else
+            {
+                launcher = DccmLauncherPath()
+                    ?? throw new FileNotFoundException("DeadCellsModding.exe was not found.");
+                if (!File.Exists(launcher))
+                    throw new FileNotFoundException("DeadCellsModding.exe was not found.", launcher);
+            }
 
-            // Non-Steam/direct DCCM launch: start the real loader ourselves so we can report
-            // immediate startup failures instead of silently doing nothing.
+            // Standalone builds must go through DCCM's GOGStartShell. It establishes the
+            // expected game-root/process environment before starting DeadCellsModding.
             var psi = new System.Diagnostics.ProcessStartInfo(launcher)
             {
                 UseShellExecute = false,
@@ -1414,12 +1558,12 @@ public partial class MainWindow : Window
                 CreateNoWindow = false
             };
             var process = System.Diagnostics.Process.Start(psi)
-                ?? throw new InvalidOperationException("Windows returned no process when starting DeadCellsModding.exe.");
+                ?? throw new InvalidOperationException($"Windows returned no process when starting {Path.GetFileName(launcher)}.");
 
             WriteLog($"Started DCCM launcher PID {process.Id}: {launcher}");
             SetStatus(IsSteamInstall()
                 ? "Starting DCCM directly. Steam shell is unavailable; LAN / port forwarding will be used."
-                : "Starting DCCM for non-Steam Dead Cells. Checking for an immediate startup error...");
+                : "Starting DCCM through its official GOG/non-Steam shell. Checking for an immediate startup error...");
 
             // Most hard failures (missing runtime/native dependency/bad path) happen immediately.
             // Do not wait indefinitely and do not treat a normal exit code 0 as a failure because
@@ -1432,7 +1576,7 @@ public partial class MainWindow : Window
                 WriteLog($"DCCM launcher exited within startup window. Exit code: {code}.");
                 if (code != 0)
                     throw new InvalidOperationException(
-                        $"DeadCellsModding.exe exited immediately with code {code}. Click Diagnostics and send the generated report.");
+                        $"{Path.GetFileName(launcher)} exited immediately with code {code}. Click Diagnostics and send the generated report.");
 
                 SetStatus("DCCM launcher handed off successfully (exit code 0). If Dead Cells still does not appear, click Diagnostics and send the report.");
                 return;
@@ -1482,9 +1626,12 @@ public partial class MainWindow : Window
             }
             else
             {
-                url = IsSteamInstall() && SteamShellReady()
-                    ? $"steam://rungameid/{DeadCellsSteamAppId}"
-                    : DccmLauncherPath() is string exe && File.Exists(exe)
+                if (IsSteamInstall() && SteamShellReady())
+                    url = $"steam://rungameid/{DeadCellsSteamAppId}";
+                else if (!IsSteamInstall() && GogShellCachePath() is string gogExe && File.Exists(gogExe))
+                    url = new Uri(gogExe).AbsoluteUri;
+                else
+                    url = DccmLauncherPath() is string exe && File.Exists(exe)
                         ? new Uri(exe).AbsoluteUri
                         : null;
             }
@@ -1517,6 +1664,11 @@ public partial class MainWindow : Window
         if (!File.Exists(deadcells) && !File.Exists(deadcellsGl))
             throw new FileNotFoundException(
                 "The selected folder does not contain deadcells.exe or deadcells_gl.exe. Choose the actual Dead Cells game folder.");
+
+        if (!IsSteamInstall() && !File.Exists(deadcellsGl))
+            throw new FileNotFoundException(
+                "This non-Steam folder does not contain deadcells_gl.exe. DCCM's official GOG/non-Steam launcher uses deadcells_gl.exe to locate and start Dead Cells. " +
+                "Choose the real game folder, then run Repair / Update DCCM.", deadcellsGl);
 
         WriteLog($"Game validation OK. deadcells.exe={File.Exists(deadcells)}, deadcells_gl.exe={File.Exists(deadcellsGl)}, Steam={IsSteamInstall()}.");
     }
@@ -1726,6 +1878,8 @@ public partial class MainWindow : Window
         sb.AppendLine($"DCCM launcher: {launcher ?? "<null>"}");
         sb.AppendLine($"DCCM launcher exists: {(launcher != null && File.Exists(launcher))}");
         sb.AppendLine($"Steam shell ready: {SteamShellReady()}");
+        sb.AppendLine($"GOG/non-Steam shell: {GogShellCachePath() ?? "<null>"}");
+        sb.AppendLine($"GOG/non-Steam shell ready: {GogShellReady()}");
         sb.AppendLine();
         sb.AppendLine($".NET 10 runtime detected: {dotnet.Count > 0}");
         sb.AppendLine($".NET runtimes: {(dotnet.Count == 0 ? "<none>" : string.Join(", ", dotnet))}");
