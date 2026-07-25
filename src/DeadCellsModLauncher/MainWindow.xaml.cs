@@ -189,7 +189,7 @@ public partial class MainWindow : Window
                         ? "GOG launcher + LAN / port forwarding"
                         : "GOG build; GOG startup shell will be repaired on Install/Play",
                     GamePlatformFlavor.Standalone => "Standalone build; DCCM direct startup + LAN / port forwarding",
-                    GamePlatformFlavor.SteamRuntimeOutsideSteam => "Steam-format game files detected outside Steam; Steam initialization is still required",
+                    GamePlatformFlavor.SteamRuntimeOutsideSteam => "Copied Steam-format build; DCCM direct startup + LAN / port forwarding",
                     GamePlatformFlavor.MixedNativePlatformFiles => "Mixed Steam/GOG platform files detected; restore a clean game installation",
                     _ => "Unknown platform"
                 };
@@ -1069,7 +1069,7 @@ public partial class MainWindow : Window
             else if (DetectGamePlatformFlavor() == GamePlatformFlavor.Standalone)
                 SetStatus("DCCM repaired. Standalone direct startup is ready for LAN / port forwarding.");
             else if (DetectGamePlatformFlavor() == GamePlatformFlavor.SteamRuntimeOutsideSteam)
-                SetStatus("DCCM repaired, but this folder contains Steam-format game files. Steam initialization will still be required.");
+                SetStatus("DCCM repaired. Copied Steam-format build; DCCM direct startup is ready for LAN / port forwarding.");
             else
                 SetStatus("DCCM repaired, but mixed Steam/GOG platform files were detected. Restore a clean Dead Cells installation before launching.");
         }
@@ -1554,6 +1554,37 @@ public partial class MainWindow : Window
         return cache != null && File.Exists(cache) && File.Exists(gameExe) && FilesEqual(cache, gameExe);
     }
 
+    /// <summary>
+    /// Writes steam_appid.txt into the game root when it is missing.
+    /// </summary>
+    /// <remarks>
+    /// A Steam-format build launched outside the Steam client cannot tell Steam which game it is,
+    /// so SteamAPI initialization fails even when the client is running and the account owns the
+    /// game. steam_appid.txt is the documented way to supply that id. It does not bypass anything:
+    /// Steam still requires a running client and a licence for the app before it hands back a
+    /// session. Written best-effort — if the folder is read-only, the launch simply proceeds
+    /// without Steam and the mod falls back to direct IP / LAN.
+    /// </remarks>
+    private void TryEnsureSteamAppIdFile()
+    {
+        try
+        {
+            if (_gameRoot == null)
+                return;
+
+            var path = Path.Combine(_gameRoot, "steam_appid.txt");
+            if (File.Exists(path))
+                return;
+
+            File.WriteAllText(path, DeadCellsSteamAppId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            WriteLog($"Wrote steam_appid.txt ({DeadCellsSteamAppId}) so this copied build can initialize Steam.");
+        }
+        catch (Exception ex)
+        {
+            WriteLog($"Could not write steam_appid.txt: {ex.Message}. Launch continues; Steam features may be unavailable.");
+        }
+    }
+
     private bool CanLaunchMod()
     {
         var launcher = DccmLauncherPath();
@@ -1608,9 +1639,22 @@ public partial class MainWindow : Window
                     break;
 
                 case GamePlatformFlavor.SteamRuntimeOutsideSteam:
-                    throw new InvalidOperationException(
-                        "This folder is outside a Steam library, but its game root contains steam.hdll. DCCM therefore sees a Steam-format Dead Cells build and the game will try to initialize Steam. " +
-                        "Use the Steam installation through Steam, or select a clean GOG/standalone Dead Cells installation. The launcher will not force this build through the GOG startup path.");
+                    // A Steam-format build sitting outside a Steam library is almost always a
+                    // copied install — most often a second local copy used to run two clients at
+                    // once for LAN/co-op testing, since Steam will not start the same game twice.
+                    // This is launchable: the game asks Steam to initialize, which succeeds when
+                    // the Steam client is running and the account owns Dead Cells, and DCCM plus
+                    // the co-op mod already fall back to direct IP / LAN when it does not.
+                    //
+                    // It is NOT forced through the GOG shell — that shell targets a real GOG build
+                    // and would misreport the platform. DCCM is started directly so its own
+                    // platform detection decides, exactly as for a standalone build.
+                    TryEnsureSteamAppIdFile();
+                    launcher = DccmLauncherPath()
+                        ?? throw new FileNotFoundException("DeadCellsModding.exe was not found.");
+                    if (!File.Exists(launcher))
+                        throw new FileNotFoundException("DeadCellsModding.exe was not found.", launcher);
+                    break;
 
                 case GamePlatformFlavor.MixedNativePlatformFiles:
                     throw new InvalidOperationException(
@@ -1641,6 +1685,7 @@ public partial class MainWindow : Window
             {
                 GamePlatformFlavor.Gog => "Starting DCCM through its official GOG shell. Checking startup...",
                 GamePlatformFlavor.Standalone => "Starting DCCM directly in standalone mode. Checking startup...",
+                GamePlatformFlavor.SteamRuntimeOutsideSteam => "Starting DCCM directly for this copied Steam-format build. Checking startup...",
                 _ => "Starting DCCM. Checking startup..."
             });
 
