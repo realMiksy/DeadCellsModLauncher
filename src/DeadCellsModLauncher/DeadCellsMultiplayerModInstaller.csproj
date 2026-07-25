@@ -7,22 +7,38 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
-    <AssemblyName>DeadCellsMultiplayerMod Installer</AssemblyName>
-    <ApplicationTitle>DeadCellsMultiplayerMod Installer</ApplicationTitle>
+
+    <!-- Friendly Windows file metadata. -->
+    <AssemblyName>DeadCellsModLauncher</AssemblyName>
+    <ApplicationTitle>Dead Cells Mod Launcher</ApplicationTitle>
+    <Product>Dead Cells Mod Launcher</Product>
+    <Description>Installer, updater and launcher for the Dead Cells Multiplayer Mod.</Description>
+    <Company>Miksy</Company>
+    <Authors>Miksy</Authors>
+    <Copyright>Copyright © Miksy</Copyright>
     <ApplicationIcon>appicon.ico</ApplicationIcon>
     <Version>1.0.0</Version>
+    <FileVersion>1.0.0.0</FileVersion>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
 
-    <!-- Ship as one self-contained .exe so users need nothing preinstalled. -->
+    <!--
+      Publish as a normal self-contained Windows application folder.
+      This deliberately avoids packing/compressing the .NET runtime into a
+      self-extracting single EXE, which is less transparent to security scanners.
+    -->
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
-    <PublishSingleFile>true</PublishSingleFile>
-    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <PublishSingleFile>false</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>false</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>false</EnableCompressionInSingleFile>
     <PublishTrimmed>false</PublishTrimmed>
     <DebugType>none</DebugType>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
-  </PropertyGroup>
 
+    <!-- More stable/reproducible CI output. -->
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+  </PropertyGroup>
 
   <ItemGroup>
     <Resource Include="appicon.ico" />

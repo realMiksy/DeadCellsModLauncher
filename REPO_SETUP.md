@@ -48,15 +48,27 @@ This repository already contains:
 
 Every push to `main` creates a downloadable Actions build artifact.
 
+The public build is intentionally **not** a compressed/self-extracting single EXE. GitHub Actions publishes a transparent self-contained Windows folder as:
+
+`DeadCellsModLauncher-win-x64.zip`
+
+The ZIP contains `DeadCellsModLauncher.exe` plus the normal .NET runtime files it needs. Users do not need to install .NET separately.
+
+The workflow also creates:
+
+`SHA256SUMS.txt`
+
+for download verification.
+
 To create a public launcher Release, create/push a tag such as:
 
 `v1.0.0`
 
-GitHub Actions will build the Windows single-file launcher and attach:
+GitHub Actions will attach the ZIP and checksum file automatically.
 
-`DeadCellsModLauncher.exe`
+### Optional trusted Windows signing
 
-to the Release automatically.
+The workflow is ready to Authenticode-sign the launcher when you add a trusted PFX certificate through GitHub Actions secrets. See `SIGNING.md`. Never upload the certificate itself to the repository.
 
 ## 5. Repository topics
 

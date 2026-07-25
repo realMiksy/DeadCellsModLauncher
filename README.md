@@ -145,6 +145,15 @@ Dead Cells/
 
 Players normally do not need to touch these files themselves.
 
+## 🔐 Release security
+
+Public releases are packaged to be easier to inspect: the launcher and its .NET runtime files are stored normally inside a ZIP rather than packed into a compressed/self-extracting executable. Every release also contains SHA-256 checksums.
+
+A trusted Windows code-signing certificate can be added without changing the source; the GitHub workflow will then Authenticode-sign and verify `DeadCellsModLauncher.exe` before packaging the release.
+
+> [!WARNING]
+> Never tell users to disable Windows Defender or their antivirus. A specific malware detection should be investigated and reported with the exact detection name.
+
 ## Troubleshooting
 
 ### The launcher cannot modify the Dead Cells folder
@@ -169,10 +178,19 @@ LAN / direct IP / port forwarding can still be used through the standalone DCCM 
 
 ## Development
 
-The launcher is a Windows WPF application. From the `Installer` project directory:
+The launcher is a Windows WPF application targeting .NET 8. The public release build is intentionally published as a normal self-contained folder instead of a compressed/self-extracting single executable.
+
+From the repository root:
 
 ```powershell
-dotnet publish -c Release
+dotnet publish src/DeadCellsModLauncher/DeadCellsMultiplayerModInstaller.csproj `
+  -c Release `
+  -r win-x64 `
+  --self-contained true `
+  -p:PublishSingleFile=false `
+  -p:IncludeNativeLibrariesForSelfExtract=false `
+  -p:EnableCompressionInSingleFile=false `
+  -o dist/publish
 ```
 
 The launcher source is designed around a simple player-facing goal: **install once, then press Play**.
@@ -199,12 +217,13 @@ Thanks to everyone testing multiplayer builds, reporting crashes and helping imp
 
 ---
 
-## Building the launcher
+## Release builds and security
 
-The launcher source is included under [`src/DeadCellsModLauncher`](src/DeadCellsModLauncher).
+The included GitHub Actions workflow builds the launcher automatically. A tag such as `v1.0.0` publishes:
 
-```powershell
-dotnet publish src/DeadCellsModLauncher/DeadCellsMultiplayerModInstaller.csproj -c Release -r win-x64 --self-contained true
-```
+- `DeadCellsModLauncher-win-x64.zip` — the complete self-contained Windows build;
+- `SHA256SUMS.txt` — SHA-256 hashes for verifying the ZIP and launcher executable.
 
-The included GitHub Actions workflow also builds `DeadCellsModLauncher.exe` automatically. Creating a tag such as `v1.0.0` publishes the compiled executable as a GitHub Release.
+The release build does **not** use .NET single-file compression or native self-extraction. Optional Authenticode signing is already wired into the workflow and activates when the maintainer adds the signing certificate secrets described in [`SIGNING.md`](SIGNING.md).
+
+See [`SECURITY.md`](SECURITY.md) for download verification and antivirus-warning guidance.

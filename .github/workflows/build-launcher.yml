@@ -11,6 +11,12 @@ on:
 permissions:
   contents: write
 
+env:
+  PROJECT: src/DeadCellsModLauncher/DeadCellsMultiplayerModInstaller.csproj
+  PUBLISH_DIR: dist/publish
+  PACKAGE_DIR: dist/package
+  PACKAGE_NAME: DeadCellsModLauncher-win-x64
+
 jobs:
   build:
     runs-on: windows-latest
@@ -25,41 +31,128 @@ jobs:
           dotnet-version: '8.0.x'
 
       - name: Restore
-        run: dotnet restore src/DeadCellsModLauncher/DeadCellsMultiplayerModInstaller.csproj
+        run: dotnet restore $env:PROJECT
 
-      - name: Publish single-file launcher
+      - name: Publish transparent self-contained Windows build
         shell: pwsh
         run: |
-          dotnet publish src/DeadCellsModLauncher/DeadCellsMultiplayerModInstaller.csproj `
+          dotnet publish $env:PROJECT `
             -c Release `
             -r win-x64 `
             --self-contained true `
-            -p:PublishSingleFile=true `
-            -p:IncludeNativeLibrariesForSelfExtract=true `
-            -p:EnableCompressionInSingleFile=true `
-            -o dist
+            -p:PublishSingleFile=false `
+            -p:IncludeNativeLibrariesForSelfExtract=false `
+            -p:EnableCompressionInSingleFile=false `
+            -p:ContinuousIntegrationBuild=true `
+            -o $env:PUBLISH_DIR
 
-          $exe = Get-ChildItem dist -Filter '*.exe' | Select-Object -First 1
-          if (-not $exe) {
-            Write-Error 'Published launcher executable was not found.'
+          $launcher = Join-Path $env:PUBLISH_DIR 'DeadCellsModLauncher.exe'
+          if (-not (Test-Path $launcher)) {
+            Write-Error "Expected launcher was not found: $launcher"
             exit 1
           }
 
-          $target = Join-Path $exe.DirectoryName 'DeadCellsModLauncher.exe'
-          if ($exe.FullName -ne $target) {
-            Copy-Item $exe.FullName $target -Force
+      - name: Check optional signing configuration
+        id: signing_config
+        shell: pwsh
+        env:
+          SIGNING_CERT_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          SIGNING_CERT_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if (-not [string]::IsNullOrWhiteSpace($env:SIGNING_CERT_BASE64) -and
+              -not [string]::IsNullOrWhiteSpace($env:SIGNING_CERT_PASSWORD)) {
+            'enabled=true' >> $env:GITHUB_OUTPUT
+          } else {
+            'enabled=false' >> $env:GITHUB_OUTPUT
           }
+
+      - name: Sign launcher when certificate secrets are configured
+        if: steps.signing_config.outputs.enabled == 'true'
+        shell: pwsh
+        env:
+          SIGNING_CERT_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          SIGNING_CERT_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          $certPath = Join-Path $env:RUNNER_TEMP 'launcher-signing.pfx'
+          [IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String($env:SIGNING_CERT_BASE64))
+
+          $signtool = Get-ChildItem '${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe' -ErrorAction SilentlyContinue |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+
+          if (-not $signtool) {
+            Write-Error 'signtool.exe was not found on the GitHub runner.'
+            exit 1
+          }
+
+          $launcher = Join-Path $env:PUBLISH_DIR 'DeadCellsModLauncher.exe'
+          & $signtool.FullName sign `
+            /f $certPath `
+            /p $env:SIGNING_CERT_PASSWORD `
+            /fd SHA256 `
+            /tr http://timestamp.digicert.com `
+            /td SHA256 `
+            $launcher
+
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Authenticode signing failed.'
+          }
+
+          & $signtool.FullName verify /pa /v $launcher
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Authenticode signature verification failed.'
+          }
+
+          Remove-Item $certPath -Force -ErrorAction SilentlyContinue
+
+      - name: Show signing status
+        shell: pwsh
+        run: |
+          $launcher = Join-Path $env:PUBLISH_DIR 'DeadCellsModLauncher.exe'
+          $signature = Get-AuthenticodeSignature $launcher
+          Write-Host "Authenticode status: $($signature.Status)"
+          if ($signature.SignerCertificate) {
+            Write-Host "Signer: $($signature.SignerCertificate.Subject)"
+          } else {
+            Write-Host 'Launcher is unsigned. Add WINDOWS_CERTIFICATE_BASE64 and WINDOWS_CERTIFICATE_PASSWORD repository secrets to enable signing.'
+          }
+
+      - name: Package release ZIP and SHA-256 checksums
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:PACKAGE_DIR | Out-Null
+
+          $zipPath = Join-Path $env:PACKAGE_DIR "$($env:PACKAGE_NAME).zip"
+          if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
+          Compress-Archive -Path "$($env:PUBLISH_DIR)\*" -DestinationPath $zipPath -CompressionLevel Optimal
+
+          $launcher = Join-Path $env:PUBLISH_DIR 'DeadCellsModLauncher.exe'
+          $zipHash = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          $exeHash = (Get-FileHash $launcher -Algorithm SHA256).Hash.ToLowerInvariant()
+
+          $checksumPath = Join-Path $env:PACKAGE_DIR 'SHA256SUMS.txt'
+          @(
+            "$zipHash  $($env:PACKAGE_NAME).zip"
+            "$exeHash  DeadCellsModLauncher.exe"
+          ) | Set-Content -Path $checksumPath -Encoding ascii
+
+          Write-Host 'Release checksums:'
+          Get-Content $checksumPath
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: DeadCellsModLauncher-win-x64
-          path: dist/DeadCellsModLauncher.exe
+          path: |
+            dist/package/DeadCellsModLauncher-win-x64.zip
+            dist/package/SHA256SUMS.txt
 
       - name: Publish tagged GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           name: Dead Cells Mod Launcher ${{ github.ref_name }}
-          files: dist/DeadCellsModLauncher.exe
+          files: |
+            dist/package/DeadCellsModLauncher-win-x64.zip
+            dist/package/SHA256SUMS.txt
           generate_release_notes: true
