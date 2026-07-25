@@ -93,8 +93,12 @@
                                 <TextBlock Text="Core Modding API (DCCM)" Foreground="{StaticResource TextBrush}" FontWeight="SemiBold" FontSize="14"/>
                                 <TextBlock x:Name="DccmStatus" Text="Checking..." Foreground="{StaticResource SubtleTextBrush}" FontSize="12.5" Margin="0,2,0,0" TextWrapping="Wrap"/>
                             </StackPanel>
-                            <Button x:Name="DccmGuideBtn" Grid.Column="2" Content="Guide" Style="{StaticResource GhostButton}"
-                                    VerticalAlignment="Center" Visibility="Collapsed" Click="DccmGuide_Click"/>
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button x:Name="DiagnosticsBtn" Content="Diagnostics" Style="{StaticResource GhostButton}"
+                                        Padding="10,6" Margin="0,0,8,0" Click="Diagnostics_Click"/>
+                                <Button x:Name="DccmGuideBtn" Content="Guide" Style="{StaticResource GhostButton}"
+                                        VerticalAlignment="Center" Visibility="Collapsed" Click="DccmGuide_Click"/>
+                            </StackPanel>
                         </Grid>
                         <Grid Margin="34,12,0,0">
                             <Grid.ColumnDefinitions>
@@ -105,6 +109,8 @@
                                 <TextBlock Text="Automatic setup" Foreground="{StaticResource TextBrush}" FontSize="12.5" FontWeight="SemiBold"/>
                                 <TextBlock Text="Steam hosting is enabled automatically for Steam installs; standalone installs use LAN / port forwarding."
                                            Foreground="{StaticResource SubtleTextBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,2,0,0"/>
+                                <TextBlock x:Name="PrereqStatus" Text="Prerequisites: checking..."
+                                           Foreground="{StaticResource SubtleTextBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,3,0,0"/>
                             </StackPanel>
                             <Button x:Name="DccmInstallBtn" Grid.Column="1" Content="Install / Repair DCCM" Style="{StaticResource GhostButton}"
                                     HorizontalAlignment="Right" VerticalAlignment="Center" Padding="12,7" Click="DccmInstall_Click"/>

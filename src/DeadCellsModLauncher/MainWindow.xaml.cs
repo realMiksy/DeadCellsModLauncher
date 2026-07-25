@@ -30,6 +30,9 @@ public partial class MainWindow : Window
     private const string DccmRepoOwner = "dead-cells-core-modding";
     private const string DccmRepoName  = "core";
     private const string DccmDocsUrl = "https://dead-cells-core-modding.github.io/docs/docs/tutorial/install-core/";
+    private const string DotNet10DownloadPage = "https://dotnet.microsoft.com/download/dotnet/10.0";
+    private const string DotNet10X64InstallerUrl = "https://builds.dotnet.microsoft.com/dotnet/Runtime/10.0.10/dotnet-runtime-10.0.10-win-x64.exe";
+    private const string VcRedistX64InstallerUrl = "https://aka.ms/vc14/vc_redist.x64.exe";
 
     // Community
     private const string DiscordUrl = "https://discord.gg/rEAzpe7wyb";
@@ -54,10 +57,15 @@ public partial class MainWindow : Window
     private string? _dccmSteamShellUrl;
     private string? _dccmSteamShellAssetName;
     private bool _busy;
+    private readonly string _logPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "DeadCellsModLauncher", "launcher.log");
 
     public MainWindow()
     {
         InitializeComponent();
+        EnsureLogDirectory();
+        WriteLog("Launcher started.");
         Loaded += OnLoaded;
     }
 
@@ -75,6 +83,7 @@ public partial class MainWindow : Window
     {
         DetectEverything();
         RefreshInstalledVersion();
+        RefreshPrerequisiteStatus();
         await CheckLatestAsync();
         await CheckDccmLatestAsync();
     }
@@ -144,6 +153,7 @@ public partial class MainWindow : Window
             PathHint.Text = "Click Change and pick your Dead Cells folder (the one containing deadcells.exe or the coremod folder).";
         }
         RefreshDccmStatus();
+        RefreshPrerequisiteStatus();
         UpdateInstallButtonState();
     }
 
@@ -990,7 +1000,8 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            SetStatus("DCCM setup failed: " + ex.Message);
+            WriteLog("DCCM setup failure: " + ex);
+            SetStatus("DCCM setup failed: " + ex.Message + "  Use Diagnostics for a report.");
         }
         finally
         {
@@ -1003,6 +1014,9 @@ public partial class MainWindow : Window
     {
         if (_gameRoot == null || _coremodRoot == null)
             throw new InvalidOperationException("Dead Cells folder is not selected.");
+
+        await EnsureDccmPrerequisitesAsync(installIfMissing: true);
+        ValidateGameFilesForDccm();
 
         if (forceCoreInstall || !DccmInstalled())
         {
@@ -1281,7 +1295,7 @@ public partial class MainWindow : Window
             SetBusy(false);
             UpdateInstallButtonState();
         }
-        LaunchGame();
+        await LaunchGameAsync();
     }
 
     private bool CanLaunchVanilla()
@@ -1367,15 +1381,16 @@ public partial class MainWindow : Window
             && launcher != null && File.Exists(launcher);
     }
 
-    private void LaunchGame()
+    private async Task LaunchGameAsync()
     {
         if (_gameRoot == null) return;
         try
         {
             if (IsSteamInstall() && SteamShellReady())
             {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+                var steamProcess = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
                     $"steam://rungameid/{DeadCellsSteamAppId}") { UseShellExecute = true });
+                WriteLog($"Steam launch requested. Process object: {(steamProcess == null ? "null" : steamProcess.Id.ToString())}.");
                 SetStatus("Launching through Steam with the DCCM deadcells.exe shell. Steam hosting + LAN are enabled.");
                 return;
             }
@@ -1384,19 +1399,48 @@ public partial class MainWindow : Window
             if (launcher == null || !File.Exists(launcher))
                 throw new FileNotFoundException("DeadCellsModding.exe was not found.", launcher);
 
+            // Non-Steam/direct DCCM launch: start the real loader ourselves so we can report
+            // immediate startup failures instead of silently doing nothing.
             var psi = new System.Diagnostics.ProcessStartInfo(launcher)
             {
-                UseShellExecute = true,
-                WorkingDirectory = _gameRoot
+                UseShellExecute = false,
+                WorkingDirectory = _gameRoot,
+                CreateNoWindow = false
             };
-            System.Diagnostics.Process.Start(psi);
+            var process = System.Diagnostics.Process.Start(psi)
+                ?? throw new InvalidOperationException("Windows returned no process when starting DeadCellsModding.exe.");
+
+            WriteLog($"Started DCCM launcher PID {process.Id}: {launcher}");
             SetStatus(IsSteamInstall()
-                ? "Launching DCCM directly. Steam shell was unavailable, so use LAN / port forwarding for this session."
-                : "Launching DCCM directly. LAN / port-forwarding mode enabled.");
+                ? "Starting DCCM directly. Steam shell is unavailable; LAN / port forwarding will be used."
+                : "Starting DCCM for non-Steam Dead Cells. Checking for an immediate startup error...");
+
+            // Most hard failures (missing runtime/native dependency/bad path) happen immediately.
+            // Do not wait indefinitely and do not treat a normal exit code 0 as a failure because
+            // the DCCM launcher may hand off to the game process and exit.
+            var exitTask = process.WaitForExitAsync();
+            var completed = await Task.WhenAny(exitTask, Task.Delay(TimeSpan.FromSeconds(6)));
+            if (completed == exitTask)
+            {
+                var code = process.ExitCode;
+                WriteLog($"DCCM launcher exited within startup window. Exit code: {code}.");
+                if (code != 0)
+                    throw new InvalidOperationException(
+                        $"DeadCellsModding.exe exited immediately with code {code}. Click Diagnostics and send the generated report.");
+
+                SetStatus("DCCM launcher handed off successfully (exit code 0). If Dead Cells still does not appear, click Diagnostics and send the report.");
+                return;
+            }
+
+            WriteLog("DCCM launcher remained running past the 6-second startup check.");
+            SetStatus(IsSteamInstall()
+                ? "DCCM started. LAN / port-forwarding fallback is active for this session."
+                : "DCCM started successfully. LAN / port-forwarding mode enabled.");
         }
         catch (Exception ex)
         {
-            SetStatus("Couldn't launch Dead Cells: " + ex.Message);
+            WriteLog("Launch failure: " + ex);
+            SetStatus("Couldn't launch Dead Cells: " + ex.Message + "  Use Diagnostics for a report.");
         }
     }
 
@@ -1455,6 +1499,271 @@ public partial class MainWindow : Window
     }
 
 
+    // ---------------------------------------------------------------- prerequisites & diagnostics
+
+    private void ValidateGameFilesForDccm()
+    {
+        if (_gameRoot == null)
+            throw new InvalidOperationException("Dead Cells folder is not selected.");
+
+        var deadcells = Path.Combine(_gameRoot, "deadcells.exe");
+        var deadcellsGl = Path.Combine(_gameRoot, "deadcells_gl.exe");
+        if (!File.Exists(deadcells) && !File.Exists(deadcellsGl))
+            throw new FileNotFoundException(
+                "The selected folder does not contain deadcells.exe or deadcells_gl.exe. Choose the actual Dead Cells game folder.");
+
+        WriteLog($"Game validation OK. deadcells.exe={File.Exists(deadcells)}, deadcells_gl.exe={File.Exists(deadcellsGl)}, Steam={IsSteamInstall()}.");
+    }
+
+    private static IReadOnlyList<string> GetDotNet10RuntimeVersions()
+    {
+        var versions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var roots = new[]
+        {
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet", "shared", "Microsoft.NETCore.App"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dotnet", "shared", "Microsoft.NETCore.App")
+        };
+
+        foreach (var root in roots)
+        {
+            try
+            {
+                if (!Directory.Exists(root)) continue;
+                foreach (var dir in Directory.GetDirectories(root))
+                {
+                    var version = Path.GetFileName(dir);
+                    if (Version.TryParse(version.Split('-')[0], out var parsed) && parsed.Major >= 10)
+                        versions.Add(version);
+                }
+            }
+            catch { }
+        }
+        return versions.OrderBy(v => v, StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    private static bool HasDotNet10Runtime() => GetDotNet10RuntimeVersions().Count > 0;
+
+    private static (bool installed, string? version) GetVcRedistX64Status()
+    {
+        foreach (var keyPath in new[]
+        {
+            @"SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64",
+            @"SOFTWARE\WOW6432Node\Microsoft\VisualStudio\14.0\VC\Runtimes\x64"
+        })
+        {
+            try
+            {
+                using var key = Registry.LocalMachine.OpenSubKey(keyPath);
+                if (key == null) continue;
+                var installedValue = key.GetValue("Installed");
+                var installed = installedValue is int i ? i == 1
+                    : int.TryParse(installedValue?.ToString(), out var parsed) && parsed == 1;
+                var version = key.GetValue("Version")?.ToString();
+                if (installed) return (true, version);
+            }
+            catch { }
+        }
+        return (false, null);
+    }
+
+    private void RefreshPrerequisiteStatus()
+    {
+        if (PrereqStatus == null) return;
+        var dotnetVersions = GetDotNet10RuntimeVersions();
+        var vc = GetVcRedistX64Status();
+        var dotnetText = dotnetVersions.Count > 0 ? $".NET 10 ✓ ({dotnetVersions.Last()})" : ".NET 10 missing";
+        var vcText = vc.installed ? $"VC++ x64 ✓{(string.IsNullOrWhiteSpace(vc.version) ? "" : $" ({vc.version})")}" : "VC++ x64 missing";
+        PrereqStatus.Text = $"Prerequisites: {dotnetText}  •  {vcText}";
+        PrereqStatus.Foreground = (!HasDotNet10Runtime() || !vc.installed)
+            ? (Brush)FindResource("BadBrush")
+            : (Brush)FindResource("SubtleTextBrush");
+    }
+
+    private async Task EnsureDccmPrerequisitesAsync(bool installIfMissing)
+    {
+        var needDotNet = !HasDotNet10Runtime();
+        var vc = GetVcRedistX64Status();
+        var needVc = !vc.installed;
+        RefreshPrerequisiteStatus();
+
+        if (!needDotNet && !needVc)
+        {
+            WriteLog("DCCM prerequisite check passed.");
+            return;
+        }
+
+        var missing = string.Join(" and ", new[]
+        {
+            needDotNet ? ".NET 10 Runtime" : null,
+            needVc ? "Microsoft Visual C++ x64 Redistributable" : null
+        }.OfType<string>());
+        WriteLog("Missing DCCM prerequisites: " + missing);
+
+        if (!installIfMissing)
+            throw new InvalidOperationException($"Missing DCCM prerequisite(s): {missing}.");
+
+        if (needDotNet)
+        {
+            SetStatus("DCCM needs .NET 10 Runtime. Downloading the official Microsoft installer...");
+            await DownloadAndRunPrerequisiteAsync(
+                DotNet10X64InstallerUrl,
+                "dotnet-runtime-10.0.10-win-x64.exe",
+                "/install /passive /norestart",
+                ".NET 10 Runtime");
+            await Task.Delay(800);
+            if (!HasDotNet10Runtime())
+            {
+                OpenUrl(DotNet10DownloadPage);
+                throw new InvalidOperationException(
+                    ".NET 10 Runtime still could not be detected after installation. The official Microsoft download page has been opened. Install the x64 Runtime, then try again.");
+            }
+        }
+
+        vc = GetVcRedistX64Status();
+        if (!vc.installed)
+        {
+            SetStatus("DCCM needs Microsoft Visual C++ Redistributable. Downloading the official Microsoft installer...");
+            await DownloadAndRunPrerequisiteAsync(
+                VcRedistX64InstallerUrl,
+                "vc_redist.x64.exe",
+                "/install /passive /norestart",
+                "Microsoft Visual C++ x64 Redistributable");
+            await Task.Delay(800);
+            if (!GetVcRedistX64Status().installed)
+                throw new InvalidOperationException(
+                    "Microsoft Visual C++ x64 Redistributable still could not be detected after installation. Restart Windows if the installer requested it, then try again.");
+        }
+
+        RefreshPrerequisiteStatus();
+        WriteLog("DCCM prerequisites installed and verified.");
+        SetStatus("DCCM prerequisites are ready.");
+    }
+
+    private async Task DownloadAndRunPrerequisiteAsync(string url, string fileName, string arguments, string displayName)
+    {
+        var temp = Path.Combine(Path.GetTempPath(), $"dcml_{Guid.NewGuid():N}_{fileName}");
+        try
+        {
+            WriteLog($"Downloading prerequisite {displayName} from {url}");
+            await DownloadFileAsync(url, temp, 0.04, 0.12);
+            var info = new System.Diagnostics.ProcessStartInfo(temp)
+            {
+                UseShellExecute = true,
+                Verb = "runas",
+                Arguments = arguments,
+                WorkingDirectory = Path.GetDirectoryName(temp) ?? Path.GetTempPath()
+            };
+            var process = System.Diagnostics.Process.Start(info)
+                ?? throw new InvalidOperationException($"Windows did not start the {displayName} installer.");
+            WriteLog($"Started {displayName} installer PID {process.Id}.");
+            await process.WaitForExitAsync();
+            WriteLog($"{displayName} installer exit code: {process.ExitCode}.");
+            if (process.ExitCode != 0 && process.ExitCode != 3010 && process.ExitCode != 1638)
+                throw new InvalidOperationException($"{displayName} installer returned exit code {process.ExitCode}.");
+        }
+        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223)
+        {
+            throw new InvalidOperationException($"{displayName} installation was cancelled at the Windows administrator prompt.", ex);
+        }
+        finally
+        {
+            TryDelete(temp);
+        }
+    }
+
+    private void Diagnostics_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var report = BuildDiagnosticsReport();
+            var path = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+                $"DeadCellsModLauncher-diagnostics-{DateTime.Now:yyyyMMdd-HHmmss}.txt");
+            File.WriteAllText(path, report);
+            WriteLog("Diagnostics report created: " + path);
+            SetStatus("Diagnostics report created on your Desktop. Send that .txt file when reporting a launch problem.");
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
+            }
+            catch { }
+        }
+        catch (Exception ex)
+        {
+            SetStatus("Could not create diagnostics report: " + ex.Message);
+        }
+    }
+
+    private string BuildDiagnosticsReport()
+    {
+        var sb = new System.Text.StringBuilder();
+        var dotnet = GetDotNet10RuntimeVersions();
+        var vc = GetVcRedistX64Status();
+        var launcher = DccmLauncherPath();
+        var activeMod = ActiveModPath();
+        sb.AppendLine("Dead Cells Mod Launcher diagnostics");
+        sb.AppendLine("===================================");
+        sb.AppendLine($"Generated: {DateTime.Now:O}");
+        sb.AppendLine($"Launcher version: {typeof(MainWindow).Assembly.GetName().Version}");
+        sb.AppendLine($"Windows: {Environment.OSVersion}");
+        sb.AppendLine($"64-bit OS: {Environment.Is64BitOperatingSystem}");
+        sb.AppendLine($"64-bit process: {Environment.Is64BitProcess}");
+        sb.AppendLine();
+        sb.AppendLine($"Game root: {_gameRoot ?? "<not selected>"}");
+        sb.AppendLine($"Steam install detected: {IsSteamInstall()}");
+        sb.AppendLine($"Vanilla mode: {IsVanillaMode()}");
+        sb.AppendLine($"deadcells.exe exists: {(_gameRoot != null && File.Exists(Path.Combine(_gameRoot, "deadcells.exe")))}");
+        sb.AppendLine($"deadcells_gl.exe exists: {(_gameRoot != null && File.Exists(Path.Combine(_gameRoot, "deadcells_gl.exe")))}");
+        sb.AppendLine();
+        sb.AppendLine($"DCCM installed: {DccmInstalled()}");
+        sb.AppendLine($"DCCM version: {ReadDccmInstalledVersion() ?? "<unknown>"}");
+        sb.AppendLine($"DCCM launcher: {launcher ?? "<null>"}");
+        sb.AppendLine($"DCCM launcher exists: {(launcher != null && File.Exists(launcher))}");
+        sb.AppendLine($"Steam shell ready: {SteamShellReady()}");
+        sb.AppendLine();
+        sb.AppendLine($".NET 10 runtime detected: {dotnet.Count > 0}");
+        sb.AppendLine($".NET runtimes: {(dotnet.Count == 0 ? "<none>" : string.Join(", ", dotnet))}");
+        sb.AppendLine($"VC++ x64 Redistributable detected: {vc.installed}");
+        sb.AppendLine($"VC++ version: {vc.version ?? "<unknown>"}");
+        sb.AppendLine();
+        sb.AppendLine($"Active mod path: {activeMod ?? "<null>"}");
+        sb.AppendLine($"Active mod folder exists: {(activeMod != null && Directory.Exists(activeMod))}");
+        sb.AppendLine($"Installed multiplayer version: {ReadInstalledVersion() ?? "<none>"}");
+        sb.AppendLine($"Latest multiplayer version seen: {_latestVersion ?? "<unknown>"}");
+        sb.AppendLine();
+        sb.AppendLine($"Launcher log: {_logPath}");
+        sb.AppendLine("--- recent launcher log ---");
+        try
+        {
+            if (File.Exists(_logPath))
+            {
+                foreach (var line in File.ReadLines(_logPath).TakeLast(120))
+                    sb.AppendLine(line);
+            }
+            else sb.AppendLine("<log file does not exist>");
+        }
+        catch (Exception ex)
+        {
+            sb.AppendLine("<could not read log: " + ex.Message + ">");
+        }
+        return sb.ToString();
+    }
+
+    private void EnsureLogDirectory()
+    {
+        try { Directory.CreateDirectory(Path.GetDirectoryName(_logPath)!); } catch { }
+    }
+
+    private void WriteLog(string message)
+    {
+        try
+        {
+            EnsureLogDirectory();
+            File.AppendAllText(_logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {message}{Environment.NewLine}");
+        }
+        catch { }
+    }
+
     // ---------------------------------------------------------------- ui glue
 
     private void UpdateInstallButtonState()
@@ -1481,6 +1790,8 @@ public partial class MainWindow : Window
         PlayText.Text = vanillaMode ? "Play Vanilla" : "Play";
         PlayBtn.IsEnabled = (vanillaMode ? CanLaunchVanilla() : CanLaunchMod()) && !_busy;
         ShortcutBtn.IsEnabled = !_busy;
+        DiagnosticsBtn.IsEnabled = !_busy;
+        RefreshPrerequisiteStatus();
     }
 
     private void Browse_Click(object sender, RoutedEventArgs e)
@@ -1505,6 +1816,7 @@ public partial class MainWindow : Window
         PathText.Text = Path.Combine(_modsRoot, ModFolderName);
         PathHint.Text = "Manual selection.";
         RefreshDccmStatus();
+        RefreshPrerequisiteStatus();
         RefreshInstalledVersion();
         UpdateInstallButtonState();
     }
@@ -1535,7 +1847,11 @@ public partial class MainWindow : Window
         catch { /* ignore */ }
     }
 
-    private void SetStatus(string s) => Dispatcher.Invoke(() => StatusLine.Text = s);
+    private void SetStatus(string s)
+    {
+        WriteLog("STATUS: " + s);
+        Dispatcher.Invoke(() => StatusLine.Text = s);
+    }
 
     private void SetProgress(double frac)
     {
@@ -1557,6 +1873,7 @@ public partial class MainWindow : Window
             BrowseBtn.IsEnabled = !b;
             PlayBtn.IsEnabled = !b && (IsVanillaMode() ? CanLaunchVanilla() : CanLaunchMod());
             ShortcutBtn.IsEnabled = !b;
+            DiagnosticsBtn.IsEnabled = !b;
         });
     }
 

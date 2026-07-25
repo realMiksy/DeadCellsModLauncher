@@ -39,6 +39,8 @@ The launcher handles the multiplayer mod, DCCM setup, updates and the correct la
 |---|---|
 | **One-click installation** | Detects Dead Cells and installs the multiplayer mod into the correct DCCM folder. |
 | **Automatic DCCM setup** | Downloads and installs/repairs the required Dead Cells Core Modding files. |
+| **Prerequisite repair** | Detects missing .NET 10 Runtime and Microsoft Visual C++ x64 Redistributable and can install the official Microsoft packages automatically. |
+| **Diagnostics** | Creates a ready-to-send diagnostics text file with game paths, DCCM state, runtimes and recent launcher logs. |
 | **Steam multiplayer setup** | Prepares the DCCM Steam launch path needed by the mod's Steam hosting/joining features. |
 | **Non-Steam support** | Uses the direct DCCM path for LAN and direct-IP / port-forwarded sessions. |
 | **Build-aware updates** | Detects both new version numbers and replaced/re-uploaded builds that keep the same version number. |
@@ -163,6 +165,12 @@ Close Dead Cells and Steam processes that may be using the files. If the game is
 ### DCCM is missing or damaged
 
 Press **Install / Repair DCCM**.
+
+### A non-Steam game does not start
+
+Press **Diagnostics** in the DCCM card. The launcher creates a `DeadCellsModLauncher-diagnostics-*.txt` file on the Desktop containing the selected game path, DCCM launcher state, .NET 10 status, Visual C++ status and recent launcher log. Send that file with the bug report.
+
+The launcher also checks and offers to install DCCM's required .NET 10 Runtime and Microsoft Visual C++ x64 Redistributable before launching.
 
 ### An update is shown but did not install automatically
 
