@@ -17,9 +17,9 @@
     <Authors>Miksy</Authors>
     <Copyright>Copyright © Miksy</Copyright>
     <ApplicationIcon>appicon.ico</ApplicationIcon>
-    <Version>1.0.1</Version>
-    <FileVersion>1.0.1.0</FileVersion>
-    <AssemblyVersion>1.0.1.0</AssemblyVersion>
+    <Version>1.0.3</Version>
+    <FileVersion>1.0.3.0</FileVersion>
+    <AssemblyVersion>1.0.3.0</AssemblyVersion>
 
     <!--
       Public build: one self-contained Windows EXE.
