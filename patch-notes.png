@@ -1,0 +1,65 @@
+name: Build Launcher
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore src/DeadCellsModLauncher/DeadCellsMultiplayerModInstaller.csproj
+
+      - name: Publish single-file launcher
+        shell: pwsh
+        run: |
+          dotnet publish src/DeadCellsModLauncher/DeadCellsMultiplayerModInstaller.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:EnableCompressionInSingleFile=true `
+            -o dist
+
+          $exe = Get-ChildItem dist -Filter '*.exe' | Select-Object -First 1
+          if (-not $exe) {
+            Write-Error 'Published launcher executable was not found.'
+            exit 1
+          }
+
+          $target = Join-Path $exe.DirectoryName 'DeadCellsModLauncher.exe'
+          if ($exe.FullName -ne $target) {
+            Copy-Item $exe.FullName $target -Force
+          }
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DeadCellsModLauncher-win-x64
+          path: dist/DeadCellsModLauncher.exe
+
+      - name: Publish tagged GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Dead Cells Mod Launcher ${{ github.ref_name }}
+          files: dist/DeadCellsModLauncher.exe
+          generate_release_notes: true

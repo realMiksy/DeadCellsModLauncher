@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Dead Cells Mod Launcher — one-click installer, updater and launcher for the Dead Cells Multiplayer Mod.">
+  <title>Dead Cells Mod Launcher</title>
+  <style>
+    :root{color-scheme:dark;--bg:#08111a;--panel:#101d28;--panel2:#142432;--line:#254051;--text:#eef8fb;--muted:#91a9b5;--accent:#54c8e8;--accent2:#86e3f5}
+    *{box-sizing:border-box} body{margin:0;font-family:Inter,Segoe UI,Arial,sans-serif;background:radial-gradient(circle at top,#173042 0,#08111a 42%);color:var(--text);line-height:1.6}
+    a{color:inherit}.wrap{width:min(1080px,calc(100% - 32px));margin:auto}.hero{padding:72px 0 46px;text-align:center}.logo{width:108px;height:108px;object-fit:contain}.eyebrow{color:var(--accent);font-weight:700;letter-spacing:.12em;text-transform:uppercase;font-size:.78rem}.hero h1{font-size:clamp(2.2rem,7vw,4.8rem);line-height:1.02;margin:14px 0 18px}.lead{max-width:760px;margin:0 auto;color:var(--muted);font-size:1.15rem}.actions{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;margin-top:28px}.btn{display:inline-block;text-decoration:none;padding:12px 18px;border-radius:10px;border:1px solid var(--line);font-weight:700}.primary{background:var(--accent);color:#071219;border-color:var(--accent)}.secondary{background:#0d1a24}.badges{margin-top:20px;color:var(--muted);font-size:.93rem}.section{padding:44px 0}.section h2{font-size:1.8rem;margin:0 0 10px}.section>.wrap>p{color:var(--muted);max-width:780px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:22px}.card{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);border-radius:14px;padding:20px}.card h3{margin:0 0 8px;font-size:1.05rem}.card p{margin:0;color:var(--muted)}.steps{counter-reset:step;display:grid;gap:12px;margin-top:20px}.step{display:flex;gap:14px;align-items:flex-start;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}.step:before{counter-increment:step;content:counter(step);display:grid;place-items:center;flex:0 0 32px;height:32px;background:var(--accent);color:#071219;border-radius:50%;font-weight:800}.shot{margin-top:24px;border:1px solid var(--line);border-radius:16px;overflow:hidden;background:#050b10}.shot img{width:100%;display:block}.split{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:20px}.mode{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px}.mode strong{color:var(--accent2)}.callout{margin-top:24px;padding:18px 20px;border-left:4px solid var(--accent);background:rgba(84,200,232,.08);border-radius:8px;color:var(--muted)}footer{padding:44px 0 60px;border-top:1px solid var(--line);text-align:center;color:var(--muted)}
+    @media(max-width:760px){.grid{grid-template-columns:1fr}.split{grid-template-columns:1fr}.hero{padding-top:48px}}
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="wrap">
+      <img class="logo" src="assets/logo.png" alt="Dead Cells Mod Launcher logo">
+      <div class="eyebrow">Community multiplayer launcher</div>
+      <h1>Dead Cells Mod Launcher</h1>
+      <p class="lead">Install the multiplayer mod, set up DCCM, keep builds updated, launch through Steam or LAN, and switch back to a fully vanilla game from one launcher.</p>
+      <div class="actions">
+        <a id="download" class="btn primary" href="#">Download latest release</a>
+        <a id="github" class="btn secondary" href="#">View on GitHub</a>
+        <a class="btn secondary" href="https://discord.gg/rEAzpe7wyb">Discord</a>
+      </div>
+      <div class="badges">Windows · Steam · LAN / Port Forwarding · Automatic DCCM Setup</div>
+    </div>
+  </header>
+
+  <main>
+    <section class="section">
+      <div class="wrap">
+        <h2>Install once. Then just press Play.</h2>
+        <p>The launcher is built to remove the manual setup normally required for multiplayer modding.</p>
+        <div class="grid">
+          <div class="card"><h3>Automatic setup</h3><p>Finds Dead Cells and installs the multiplayer mod and DCCM in the correct folders.</p></div>
+          <div class="card"><h3>Steam + standalone</h3><p>Uses the Steam DCCM path when appropriate and keeps LAN/direct-connect support for standalone installs.</p></div>
+          <div class="card"><h3>Smart updates</h3><p>Detects version updates and completely new ZIP builds even when the version number was not changed.</p></div>
+          <div class="card"><h3>Vanilla in one click</h3><p>Disable co-op and launch normal Dead Cells without Core Modding, then re-enable multiplayer later.</p></div>
+          <div class="card"><h3>Repair tools</h3><p>Repair DCCM separately without manually rebuilding the whole installation.</p></div>
+          <div class="card"><h3>Patch notes</h3><p>See the newest multiplayer changes and update status directly inside the launcher.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="wrap">
+        <h2>Quick start</h2>
+        <div class="steps">
+          <div class="step"><div><strong>Download the latest launcher release.</strong><br>Open the Windows launcher.</div></div>
+          <div class="step"><div><strong>Confirm your Dead Cells folder.</strong><br>The launcher attempts to detect it automatically.</div></div>
+          <div class="step"><div><strong>Press Install.</strong><br>DCCM and the multiplayer mod are prepared automatically.</div></div>
+          <div class="step"><div><strong>Press Play.</strong><br>The launcher chooses the correct Steam or standalone launch route.</div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="wrap">
+        <h2>Co-op when you want it. Vanilla when you don't.</h2>
+        <div class="split">
+          <div class="mode"><strong>Enable Co-op Mod</strong><p>Restores the multiplayer mod and the DCCM launch path, including Steam setup when applicable.</p></div>
+          <div class="mode"><strong>Disable Co-op Mod</strong><p>Parks the multiplayer files and launches the real vanilla game without intentionally starting DCCM.</p></div>
+        </div>
+        <div class="callout">No need to uninstall and redownload everything every time you want to switch between multiplayer and normal Dead Cells.</div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="wrap">
+        <h2>Build-aware updating</h2>
+        <p>A release does not have to change from 0.4.1 to 0.4.2 for players to receive a fix. If the 0.4.1 package itself is replaced with a new build, the launcher can detect that package change and offer the update.</p>
+        <div class="callout"><strong style="color:var(--text)">New update available</strong> stays visible with an <strong style="color:var(--text)">Update Now</strong> action if automatic updating did not finish successfully.</div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="wrap">
+        <h2>In action</h2>
+        <div class="shot"><img src="assets/launcher-and-game.png" alt="Dead Cells Multiplayer Mod running with the Dead Cells Mod Launcher and DCCM"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">Launcher by Miksy · Multiplayer mod by vaiserYT and contributors · Powered by the Dead Cells Core Modding community<br><small>Unofficial community project. Not affiliated with Motion Twin or Evil Empire.</small></div>
+  </footer>
+
+  <script>
+    (function(){
+      var host=location.hostname;
+      var path=location.pathname.split('/').filter(Boolean);
+      var owner=host.endsWith('.github.io')?host.slice(0,-10):'';
+      var repo=path[0]||'DeadCellsModLauncher';
+      var base=owner?'https://github.com/'+owner+'/'+repo:'https://github.com/OWNER/'+repo;
+      document.getElementById('download').href=base+'/releases/latest';
+      document.getElementById('github').href=base;
+    })();
+  </script>
+</body>
+</html>
