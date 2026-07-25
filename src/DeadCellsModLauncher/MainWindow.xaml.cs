@@ -102,6 +102,7 @@ public partial class MainWindow : Window
             NewsBody.Text = string.IsNullOrWhiteSpace(body)
                 ? "No patch notes were provided for this release."
                 : CleanMarkdown(body!);
+            NewsScroll.ScrollToTop();
         });
     }
 
@@ -115,6 +116,11 @@ public partial class MainWindow : Window
         {
             var line = raw.TrimEnd();
             if (line.Length == 0) { sb.AppendLine(); continue; }
+
+            // GitHub horizontal rules are useful in Markdown but look like stray dashes
+            // in the compact launcher news panel, so omit them here.
+            var rule = line.Trim();
+            if (rule == "---" || rule == "***" || rule == "___") continue;
 
             // Headings: strip leading #, keep the text as its own line.
             int h = 0; while (h < line.Length && line[h] == '#') h++;
