@@ -32,7 +32,8 @@ assets/screenshots/launcher-and-game.png
 
 
 PUBLIC RELEASES:
-- GitHub Actions now publishes DeadCellsModLauncher-win-x64.zip instead of a compressed/self-extracting single EXE.
+- GitHub Actions publishes one self-contained DeadCellsModLauncher.exe for players.
+- Single-file compression is disabled.
 - Each release includes SHA256SUMS.txt.
 - For trusted Windows signing, follow SIGNING.md and add the certificate only through GitHub Actions secrets.
 - Never commit a PFX certificate or certificate password.

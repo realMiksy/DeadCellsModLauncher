@@ -22,14 +22,14 @@
     <AssemblyVersion>1.0.0.0</AssemblyVersion>
 
     <!--
-      Publish as a normal self-contained Windows application folder.
-      This deliberately avoids packing/compressing the .NET runtime into a
-      self-extracting single EXE, which is less transparent to security scanners.
+      Public build: one self-contained Windows EXE.
+      Compression stays disabled. Native runtime libraries are bundled so
+      players do not need a separate .NET installation or a DLL folder.
     -->
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
-    <PublishSingleFile>false</PublishSingleFile>
-    <IncludeNativeLibrariesForSelfExtract>false</IncludeNativeLibrariesForSelfExtract>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <EnableCompressionInSingleFile>false</EnableCompressionInSingleFile>
     <PublishTrimmed>false</PublishTrimmed>
     <DebugType>none</DebugType>

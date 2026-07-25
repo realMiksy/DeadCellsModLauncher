@@ -100,7 +100,7 @@ Package:   replaced with a newer 0.4.1 build
 → build update detected
 ```
 
-After installation the launcher stores the identity of the exact GitHub release asset it installed. A replaced ZIP therefore counts as a new build even when `modinfo.json` and the release tag still say the same version.
+After installation the launcher stores the identity of the exact multiplayer-mod GitHub release asset it installed. A replaced multiplayer package therefore counts as a new build even when `modinfo.json` and the release tag still say the same version.
 
 When an update is waiting, the launcher shows:
 
@@ -147,7 +147,7 @@ Players normally do not need to touch these files themselves.
 
 ## 🔐 Release security
 
-Public releases are packaged to be easier to inspect: the launcher and its .NET runtime files are stored normally inside a ZIP rather than packed into a compressed/self-extracting executable. Every release also contains SHA-256 checksums.
+Public releases are intentionally simple: players download one self-contained `DeadCellsModLauncher.exe`. Single-file compression is disabled, and every release also contains a SHA-256 checksum.
 
 A trusted Windows code-signing certificate can be added without changing the source; the GitHub workflow will then Authenticode-sign and verify `DeadCellsModLauncher.exe` before packaging the release.
 
@@ -178,7 +178,7 @@ LAN / direct IP / port forwarding can still be used through the standalone DCCM 
 
 ## Development
 
-The launcher is a Windows WPF application targeting .NET 8. The public release build is intentionally published as a normal self-contained folder instead of a compressed/self-extracting single executable.
+The launcher is a Windows WPF application targeting .NET 8. The public release is built as one self-contained Windows executable so players do not need to install .NET or keep a DLL folder.
 
 From the repository root:
 
@@ -187,8 +187,8 @@ dotnet publish src/DeadCellsModLauncher/DeadCellsMultiplayerModInstaller.csproj 
   -c Release `
   -r win-x64 `
   --self-contained true `
-  -p:PublishSingleFile=false `
-  -p:IncludeNativeLibrariesForSelfExtract=false `
+  -p:PublishSingleFile=true `
+  -p:IncludeNativeLibrariesForSelfExtract=true `
   -p:EnableCompressionInSingleFile=false `
   -o dist/publish
 ```
@@ -221,9 +221,9 @@ Thanks to everyone testing multiplayer builds, reporting crashes and helping imp
 
 The included GitHub Actions workflow builds the launcher automatically. A tag such as `v1.0.0` publishes:
 
-- `DeadCellsModLauncher-win-x64.zip` — the complete self-contained Windows build;
-- `SHA256SUMS.txt` — SHA-256 hashes for verifying the ZIP and launcher executable.
+- `DeadCellsModLauncher.exe` — the complete self-contained Windows launcher;
+- `SHA256SUMS.txt` — the SHA-256 hash for verifying the launcher executable.
 
-The release build does **not** use .NET single-file compression or native self-extraction. Optional Authenticode signing is already wired into the workflow and activates when the maintainer adds the signing certificate secrets described in [`SIGNING.md`](SIGNING.md).
+The release build does **not** use .NET single-file compression. Optional Authenticode signing is already wired into the workflow and activates when the maintainer adds the signing certificate secrets described in [`SIGNING.md`](SIGNING.md).
 
 See [`SECURITY.md`](SECURITY.md) for download verification and antivirus-warning guidance.

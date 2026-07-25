@@ -18,7 +18,7 @@ If a release receives a specific malware detection, report the exact detection n
 
 Every automated GitHub Release contains `SHA256SUMS.txt`.
 
-After extracting the release, Windows PowerShell can calculate the launcher's hash with:
+Windows PowerShell can calculate the downloaded launcher's hash with:
 
 ```powershell
 Get-FileHash .\DeadCellsModLauncher.exe -Algorithm SHA256
@@ -26,11 +26,6 @@ Get-FileHash .\DeadCellsModLauncher.exe -Algorithm SHA256
 
 The result should exactly match the `DeadCellsModLauncher.exe` entry in `SHA256SUMS.txt`.
 
-You can verify the downloaded ZIP before extracting it with:
-
-```powershell
-Get-FileHash .\DeadCellsModLauncher-win-x64.zip -Algorithm SHA256
-```
 
 ## Code signing
 

@@ -45,7 +45,7 @@ Create a tag such as `v1.0.1` and push it. The workflow will:
 3. verify the signature;
 4. package the complete self-contained build;
 5. create SHA-256 checksums;
-6. attach the ZIP and checksum file to the GitHub Release.
+6. attach the signed `DeadCellsModLauncher.exe` and checksum file to the GitHub Release.
 
 ## Important
 

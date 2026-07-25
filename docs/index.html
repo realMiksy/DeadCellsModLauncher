@@ -20,7 +20,7 @@
       <h1>Dead Cells Mod Launcher</h1>
       <p class="lead">Install the multiplayer mod, set up DCCM, keep builds updated, launch through Steam or LAN, and switch back to a fully vanilla game from one launcher.</p>
       <div class="actions">
-        <a id="download" class="btn primary" href="#">Download latest release</a>
+        <a id="download" class="btn primary" href="#">Download launcher (.exe)</a>
         <a id="github" class="btn secondary" href="#">View on GitHub</a>
         <a class="btn secondary" href="https://discord.gg/rEAzpe7wyb">Discord</a>
       </div>
@@ -94,7 +94,7 @@
       var owner=host.endsWith('.github.io')?host.slice(0,-10):'';
       var repo=path[0]||'DeadCellsModLauncher';
       var base=owner?'https://github.com/'+owner+'/'+repo:'https://github.com/OWNER/'+repo;
-      document.getElementById('download').href=base+'/releases/latest';
+      document.getElementById('download').href=base+'/releases/latest/download/DeadCellsModLauncher.exe';
       document.getElementById('github').href=base;
     })();
   </script>
