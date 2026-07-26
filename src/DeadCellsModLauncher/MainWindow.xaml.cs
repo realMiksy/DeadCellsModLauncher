@@ -968,11 +968,94 @@ public partial class MainWindow : Window
         return null;
     }
 
+    /// <summary>
+    /// The DCCM version the installed mod was built against, if it declares one.
+    /// </summary>
+    /// <remarks>
+    /// DCCM generates GameProxy.dll from the game's Haxe metadata and the mod's compiled type
+    /// references resolve by index into it. Running a mod against a different core version shifts
+    /// that table, so casts land on unrelated types and the game dies with nonsense errors like
+    /// "Can't cast level.SpotFlags to tool.CPoint". Installing whatever DCCM release happens to be
+    /// latest therefore breaks a mod that was built against an older one.
+    /// </remarks>
+    private string? ReadModTargetDccmVersion()
+    {
+        try
+        {
+            var modPath = ActiveModPath() ?? DisabledModPath();
+            if (modPath == null)
+                return null;
+
+            var infoPath = Path.Combine(modPath, "modinfo.json");
+            if (!File.Exists(infoPath))
+                return null;
+
+            using var doc = JsonDocument.Parse(File.ReadAllText(infoPath));
+            if (doc.RootElement.ValueKind != JsonValueKind.Object)
+                return null;
+
+            // The key name has varied across DCCM manifest revisions; accept the known spellings.
+            string[] keys = { "targetVersion", "target", "dccmVersion", "coreVersion", "targetDccmVersion" };
+            foreach (var prop in doc.RootElement.EnumerateObject())
+            {
+                if (!keys.Contains(prop.Name, StringComparer.OrdinalIgnoreCase))
+                    continue;
+                if (prop.Value.ValueKind != JsonValueKind.String)
+                    continue;
+
+                var raw = prop.Value.GetString();
+                if (!string.IsNullOrWhiteSpace(raw))
+                    return raw.Trim();
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog($"Could not read the mod's target DCCM version: {ex.Message}");
+        }
+
+        return null;
+    }
+
+    private static string NormalizeVersionTag(string value)
+        => value.Trim().TrimStart('v', 'V');
+
     private async Task CheckDccmLatestAsync()
     {
         try
         {
+            // Pin to the release the installed mod targets when it declares one. Only fall back to
+            // "latest" when nothing is installed yet to ask.
+            var required = ReadModTargetDccmVersion();
             var url = $"https://api.github.com/repos/{DccmRepoOwner}/{DccmRepoName}/releases/latest";
+            if (!string.IsNullOrWhiteSpace(required))
+            {
+                var bare = NormalizeVersionTag(required);
+                var tagUrl = $"https://api.github.com/repos/{DccmRepoOwner}/{DccmRepoName}/releases/tags/v{bare}";
+                using (var tagResp = await Http.GetAsync(tagUrl))
+                {
+                    if (tagResp.IsSuccessStatusCode)
+                    {
+                        url = tagUrl;
+                    }
+                    else
+                    {
+                        var altUrl = $"https://api.github.com/repos/{DccmRepoOwner}/{DccmRepoName}/releases/tags/{bare}";
+                        using var altResp = await Http.GetAsync(altUrl);
+                        if (altResp.IsSuccessStatusCode)
+                        {
+                            url = altUrl;
+                        }
+                        else
+                        {
+                            WriteLog($"The mod targets DCCM {required}, but no matching release tag was found. Falling back to the latest DCCM release.");
+                        }
+                    }
+                }
+
+                if (url != $"https://api.github.com/repos/{DccmRepoOwner}/{DccmRepoName}/releases/latest")
+                    WriteLog($"Pinning DCCM to {required} because that is what the installed mod targets.");
+            }
+
             using var resp = await Http.GetAsync(url);
             if (!resp.IsSuccessStatusCode) return;
             using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
@@ -1162,6 +1245,11 @@ public partial class MainWindow : Window
             SetProgress(0.30);
             Directory.CreateDirectory(_coremodRoot!);
             CopyDirectory(coremodSource.path, _coremodRoot!);
+
+            // GameProxy.dll is generated from the game's Haxe metadata for a specific core version.
+            // Leaving a cache built by a different DCCM behind reproduces the exact mismatch this
+            // pinning is meant to prevent, so drop it and let DCCM regenerate on next start.
+            TryClearGameProxyCache();
 
             var launcher = DccmLauncherPath();
             if (launcher == null || !File.Exists(launcher))
@@ -1620,6 +1708,32 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             WriteLog($"Could not write steam_appid.txt: {ex.Message}. Launch continues; Steam features may be unavailable.");
+        }
+    }
+
+    /// <summary>
+    /// Deletes DCCM's generated GameProxy cache so it is rebuilt against the core now installed.
+    /// </summary>
+    private void TryClearGameProxyCache()
+    {
+        try
+        {
+            if (_coremodRoot == null)
+                return;
+
+            var cache = Path.Combine(_coremodRoot, "cache");
+            if (!Directory.Exists(cache))
+                return;
+
+            foreach (var file in Directory.GetFiles(cache, "GameProxy*", SearchOption.TopDirectoryOnly))
+            {
+                File.Delete(file);
+                WriteLog($"Cleared stale proxy cache: {Path.GetFileName(file)}");
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog($"Could not clear the GameProxy cache: {ex.Message}. Delete coremod\\cache\\GameProxy.dll by hand if the game crashes with a type-cast error.");
         }
     }
 
@@ -2246,6 +2360,17 @@ public partial class MainWindow : Window
         sb.AppendLine();
         sb.AppendLine($"DCCM installed: {DccmInstalled()}");
         sb.AppendLine($"DCCM version: {ReadDccmInstalledVersion() ?? "<unknown>"}");
+        var requiredDccm = ReadModTargetDccmVersion();
+        sb.AppendLine($"Mod targets DCCM version: {requiredDccm ?? "<not declared>"}");
+        if (requiredDccm != null)
+        {
+            var installedDccm = ReadDccmInstalledVersion();
+            var matches = installedDccm != null &&
+                string.Equals(NormalizeVersionTag(installedDccm), NormalizeVersionTag(requiredDccm), StringComparison.OrdinalIgnoreCase);
+            sb.AppendLine(matches
+                ? "DCCM version match: OK"
+                : "DCCM version match: MISMATCH — expect type-cast crashes (e.g. \"Can't cast level.SpotFlags to tool.CPoint\")");
+        }
         sb.AppendLine($"DCCM launcher: {launcher ?? "<null>"}");
         sb.AppendLine($"DCCM launcher exists: {(launcher != null && File.Exists(launcher))}");
         sb.AppendLine($"Steam shell ready: {SteamShellReady()}");
